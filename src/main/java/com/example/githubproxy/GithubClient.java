@@ -10,4 +10,6 @@ public interface GithubClient {
     @GetExchange("/users/{username}/repos")
     GithubRepo[] getUserRepositories(@PathVariable String username);
 
+    @GetExchange("/repos/{owner}/{repo}/branches")
+    GithubRepo.BranchDto[] getBranches(@PathVariable String owner, @PathVariable String repo);
 }

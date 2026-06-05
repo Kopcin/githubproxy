@@ -3,13 +3,9 @@ package com.example.githubproxy;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public class GithubRepo {
-    private String name;
-
-    public GithubRepo() {}
-
-    public String getName() {
-        return name;
+public record GithubRepo(String name, Owner owner, boolean fork) {
+    public record Owner(String login) {}
+    public record BranchDto(String name, Commit commit) {
+        public record Commit(String sha) {}
     }
-
 }
