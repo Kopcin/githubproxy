@@ -22,5 +22,4 @@ public class GithubController {
         List<RepositoryResponse> repos = githubService.getUserRepositories(username);
         return ResponseEntity.ok(repos);
     }
-
 }

@@ -1,0 +1,16 @@
+[
+  {
+    "name": "boysenberry-repo-1",
+    "owner": {
+      "login": "octocat"
+    },
+    "fork": true
+  },
+  {
+    "name": "git-consortium",
+    "owner": {
+      "login": "octocat"
+    },
+    "fork": false
+  }
+]

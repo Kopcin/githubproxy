@@ -19,7 +19,12 @@ repositories {
 
 dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+
 	testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
+
+	// Source: https://mvnrepository.com/artifact/org.wiremock.integrations/wiremock-spring-boot
+	testImplementation("org.wiremock.integrations:wiremock-spring-boot:4.2.1")
+
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
