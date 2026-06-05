@@ -1,6 +1,9 @@
 package com.example.githubproxy;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Arrays;
 import java.util.List;
@@ -15,29 +18,37 @@ public class GithubService {
 
     public List<RepositoryResponse> getUserRepositories(String username) {
 
-        GithubRepositoryDto[] repos = this.githubClient.getUserRepositories(username);
+        try {
+            GithubRepositoryDto[] repos = this.githubClient.getUserRepositories(username);
 
-        if (repos == null || repos.length == 0) {
-            return List.of();
+            if (repos == null || repos.length == 0) {
+                return List.of();
+            }
+
+            return Arrays.stream(repos)
+                    .filter(repo -> !repo.fork())
+                    .map(repo -> {
+
+                        BranchDto[] branches = githubClient.getBranches(repo.owner().login(), repo.name());
+
+                        List<RepositoryResponse.BranchResponse> branchResponses =
+                                (branches == null ? List.<BranchDto>of() : Arrays.asList(branches))
+                                        .stream()
+                                        .map(branch -> new RepositoryResponse.BranchResponse(
+                                                branch.name(),
+                                                branch.commit().sha()
+                                        ))
+                                        .toList();
+
+                        return new RepositoryResponse(repo.name(), repo.owner().login(), branchResponses);
+                    })
+                    .toList();
+
+        } catch (HttpClientErrorException.NotFound ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "GitHub user " + username + " not found."
+            );
         }
-
-        return Arrays.stream(repos)
-                .filter(repo -> !repo.fork())
-                .map(repo -> {
-
-                    BranchDto[] branches = githubClient.getBranches(repo.owner().login(), repo.name());
-
-                    List<RepositoryResponse.BranchResponse> branchResponses =
-                            (branches == null ? List.<BranchDto>of() : Arrays.asList(branches))
-                                    .stream()
-                                    .map(branch -> new RepositoryResponse.BranchResponse(
-                                            branch.name(),
-                                            branch.commit().sha()
-                                    ))
-                                    .toList();
-
-                    return new RepositoryResponse(repo.name(), repo.owner().login(), branchResponses);
-                })
-                .toList();
     }
 }
