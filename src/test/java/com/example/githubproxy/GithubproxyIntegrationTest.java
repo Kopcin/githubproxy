@@ -4,100 +4,123 @@ import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.test.web.servlet.client.RestTestClient;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.skyscreamer.jsonassert.JSONAssert.assertEquals;
+import static org.skyscreamer.jsonassert.JSONCompareMode.STRICT;
 
 @SpringBootTest(
-		webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-		properties = "github.api.base-url=http://localhost:8089"
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "github.api.base-url=http://localhost:8089"
 )
+@AutoConfigureRestTestClient
 @WireMockTest(httpPort = 8089)
 class GithubproxyIntegrationTest {
 
-	@LocalServerPort
-	private int port;
+    @Autowired
+    private RestTestClient restTestClient;
 
-	private final RestTemplate restTemplate = new RestTemplate();
+    @BeforeEach
+    void setup() {
+        reset();
+    }
 
-	@BeforeEach
-	void resetWiremock() {
-		reset();
-	}
+    private String readJson(final String filename) throws Exception {
+        return Files.readString(Path.of("src/test/resources", filename));
+    }
 
-	private String readJson(String filename) throws Exception {
-		Path path = Path.of("src/test/resources", filename);
-		return Files.readString(path);
-	}
+    @Test
+    @DisplayName("Should return non-fork repositories with branches and required fields")
+    void shouldReturnRepositoriesWithoutForks() throws Exception {
 
-	@Test
-	@DisplayName("Should return non-fork repositories with branches and required fields")
-	void shouldReturnRepositoriesWithoutForks() throws Exception {
-		String reposJson = readJson("github_api_repos.json");
-		String branchesJson = readJson("github_api_branches.json");
+        String reposJson = readJson("github_api_repos.json");
+        String branchesJson = readJson("github_api_branches.json");
 
-		stubFor(get(urlEqualTo("/users/octocat/repos"))
-				.willReturn(aResponse()
-						.withHeader("Content-Type", "application/json")
-						.withBody(reposJson)));
+        stubFor(get(urlEqualTo("/users/octocat/repos"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(reposJson)));
 
-		stubFor(get(urlEqualTo("/repos/octocat/git-consortium/branches"))
-				.willReturn(aResponse()
-						.withHeader("Content-Type", "application/json")
-						.withBody(branchesJson)));
+        stubFor(get(urlEqualTo("/repos/octocat/git-consortium/branches"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody(branchesJson)));
 
-		ResponseEntity<String> response = restTemplate.getForEntity(
-				"http://localhost:" + port + "/users/octocat/repos",
-				String.class
-		);
+        String response = restTestClient.get()
+                .uri("/users/octocat/repos")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
 
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String expected = """
+                [
+                  {
+                    "name":"git-consortium",
+                    "ownerLogin":"octocat",
+                    "branches":[
+                      {
+                        "name":"master",
+                        "lastCommitSha":"b33a9c7c02ad93f621fa38f0e9fc9e867e12fa0e"
+                      }
+                    ]
+                  }
+                ]
+                """;
 
-		String body = response.getBody();
-		assertThat(body).isNotNull();
+        assertEquals(expected, response, STRICT);
+    }
 
-		// 1 repo (fork odfiltrowany)
-		assertThat(body).contains("\"name\":\"git-consortium\"");
-		assertThat(body).doesNotContain("\"fork\":true");
+    @Test
+    @DisplayName("Should return 404 response in required format for non-existing GitHub user")
+    void shouldReturn404ForNonExistingUser() throws Exception {
 
-		// owner
-		assertThat(body).contains("\"ownerLogin\":\"octocat\"");
+        stubFor(get(urlEqualTo("/users/nonexistent/repos"))
+                .willReturn(aResponse().withStatus(404)));
 
-		// branches
-		assertThat(body).contains("\"branches\"");
-		assertThat(body).contains("\"name\":\"master\"");
-		assertThat(body).contains("\"lastCommitSha\":\"b33a9c7c02ad93f621fa38f0e9fc9e867e12fa0e\"");
-	}
+        String response = restTestClient.get()
+                .uri("/users/nonexistent/repos")
+                .exchange()
+                .expectStatus().isNotFound()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
 
-	@Test
-	@DisplayName("Should return 404 response in required format for non-existing GitHub user")
-	void shouldReturn404ForNonExistingUser() {
-		String url = "http://localhost:" + port +
-				"/users/3pignhe0ng3g0n3/repos";
+        String expected = """
+                {
+                  "status":404,
+                  "message":"GitHub user nonexistent not found."
+                }
+                """;
 
-		HttpClientErrorException exception =
-				assertThrows(HttpClientErrorException.NotFound.class, () ->
-						restTemplate.getForEntity(url, String.class)
-				);
+        assertEquals(expected, response, STRICT);
+    }
 
-		assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    @Test
+    @DisplayName("Should return empty list when user has no repositories")
+    void shouldReturnEmptyListWhenUserHasNoRepositories() throws Exception {
 
-		String body = exception.getResponseBodyAsString();
-		assertThat(body).isNotNull();
+        stubFor(get(urlEqualTo("/users/empty/repos"))
+                .willReturn(aResponse()
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("[]")));
 
-		assertThat(body).contains("\"status\":404");
-		assertThat(body).contains("\"message\"");
-		assertThat(body).contains("GitHub user 3pignhe0ng3g0n3 not found");
-	}
+        String response = restTestClient.get()
+                .uri("/users/empty/repos")
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class)
+                .returnResult()
+                .getResponseBody();
 
+        assertEquals("[]", response, STRICT);
+    }
 }
